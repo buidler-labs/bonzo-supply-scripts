@@ -76,19 +76,15 @@ async function checkBalance(contract, address, label) {
  * Approve token for spending
  */
 async function approveToken(tokenContract, ownerAddress, spenderAddress, amount, label = "") {
-  console.log(`\n=== 🔍 APPROVAL CHECK: ${label} ===`);
+  console.log(`\n🔍 APPROVAL CHECK: ${label}`);
   const allowance = await tokenContract.allowance(ownerAddress, spenderAddress);
   console.log(`📊 Current allowance: ${allowance.toString()}`);
 
   if (allowance.lt(amount)) {
     console.log("✅ Approving...");
-    // Add 800k gas limit for HTS token approvals
     const approveTx = await tokenContract.approve(spenderAddress, amount, { gasLimit: 800000 });
     await approveTx.wait();
-    console.log(`✨ Approved: ${approveTx.hash}`);
-
-    const newAllowance = await tokenContract.allowance(ownerAddress, spenderAddress);
-    console.log(`📈 New allowance: ${newAllowance.toString()}\n`);
+    console.log(`✨ Approved: ${approveTx.hash} | New allowance: ${(await tokenContract.allowance(ownerAddress, spenderAddress)).toString()}`);
   }
 }
 
@@ -96,34 +92,25 @@ async function approveToken(tokenContract, ownerAddress, spenderAddress, amount,
  * Check WHBAR balance and deposit native HBAR if needed
  */
 async function ensureWHBARBalance(whbarContract, erc20Contract, owner, requiredAmount) {
-  console.log("\n=== 🔍 WHBAR BALANCE CHECK ===");
+  console.log("\n🔍 WHBAR BALANCE CHECK");
   const whbarBalance = await erc20Contract.balanceOf(owner.address);
-  console.log(`💰 Current WHBAR balance: ${whbarBalance.toString()}`);
-  console.log(`📊 Required WHBAR amount: ${requiredAmount.toString()}`);
+  console.log(`💰 Current: ${whbarBalance.toString()} | Required: ${requiredAmount.toString()}`);
 
   if (whbarBalance.lt(requiredAmount)) {
     const shortfall = requiredAmount.sub(whbarBalance);
-    console.log("\n⚠️  Insufficient WHBAR balance!");
-    console.log(`💸 Converting ${shortfall.toString()} WHBAR units to native HBAR...`);
+    console.log(`\n⚠️  Insufficient WHBAR balance! Converting ${shortfall.toString()} WHBAR units to native HBAR...`);
 
-    // Convert WHBAR units (8 decimals) to wei (18 decimals) for the transaction value
-    // WHBAR uses 8 decimals, so we need to multiply by 10^10 to get to 18 decimal wei
-    const shortfallInWei = shortfall.mul(ethers.BigNumber.from("10000000000")); // 10^10
+    const shortfallInWei = shortfall.mul(ethers.BigNumber.from("10000000000"));
     console.log(`📊 Shortfall in wei: ${shortfallInWei.toString()}`);
 
-    // Deposit native HBAR to get WHBAR tokens
     const depositTx = await whbarContract.deposit({
       value: shortfallInWei,
       gasLimit: 300000,
     });
     await depositTx.wait();
-    console.log(`✅ HBAR to WHBAR conversion completed: ${depositTx.hash}`);
-
-    // Check new balance
-    const newBalance = await erc20Contract.balanceOf(owner.address);
-    console.log(`📈 New WHBAR balance: ${newBalance.toString()}\n`);
+    console.log(`✅ HBAR to WHBAR conversion completed: ${depositTx.hash} | New balance: ${(await erc20Contract.balanceOf(owner.address)).toString()}`);
   } else {
-    console.log("✅ Sufficient WHBAR balance available\n");
+    console.log("✅ Sufficient WHBAR balance available");
   }
 }
 
@@ -132,24 +119,17 @@ async function ensureWHBARBalance(whbarContract, erc20Contract, owner, requiredA
  */
 async function performDeposit(erc20Contract, lendingPoolContract, tokenAddress, amount, onBehalfOf, isWHBAR, whbarContract = null) {
   try {
-    console.log("\n=== 🏦 DEPOSIT OPERATION ===");
+    console.log("\n🏦 DEPOSIT OPERATION");
 
-    // Check if user has sufficient balance for deposit
     const userBalance = await checkBalance(erc20Contract, onBehalfOf, "Current token balance");
     if (userBalance.lt(amount)) {
-      console.log("\n=== ❌ INSUFFICIENT BALANCE ===");
-      console.log(`💰 Required: ${amount.toString()}`);
-      console.log(`💰 Available: ${userBalance.toString()}`);
-      console.log(`💰 Shortfall: ${amount.sub(userBalance).toString()}`);
-      console.log("\n🚫 Cannot proceed with deposit - insufficient token balance");
+      console.log(`\n❌ INSUFFICIENT BALANCE | Required: ${amount.toString()} | Available: ${userBalance.toString()} | Shortfall: ${amount.sub(userBalance).toString()}`);
+      console.log("🚫 Cannot proceed with deposit - insufficient token balance");
       process.exit(1);
     }
 
     if (isWHBAR && whbarContract) {
-      // Check WHBAR balance and convert HBAR if needed
       await ensureWHBARBalance(whbarContract, erc20Contract, { address: onBehalfOf }, amount);
-
-      // For WHBAR, we need to approve to both lending pool and WHBAR contract
       await approveToken(erc20Contract, onBehalfOf, lendingPoolContract.address, amount, "WHBAR to Lending Pool");
       await approveToken(erc20Contract, onBehalfOf, whbarContract.address, amount, "WHBAR to WHBAR Contract");
     } else if (!isWHBAR) {
@@ -157,25 +137,19 @@ async function performDeposit(erc20Contract, lendingPoolContract, tokenAddress, 
     }
 
     console.log("\n💸 Depositing...");
-
     let depositTx;
     if (isWHBAR) {
-      // For WHBAR, convert amount to native HBAR value (multiply by 10^10)
-      const hbarValue = amount.mul(ethers.BigNumber.from("10000000000")); // 10^10
+      const hbarValue = amount.mul(ethers.BigNumber.from("10000000000"));
       console.log(`💰 HBAR value being sent: ${hbarValue.toString()}`);
-
-      depositTx = await lendingPoolContract.deposit(tokenAddress, amount, onBehalfOf, 0, {
-        value: hbarValue,
-      });
+      depositTx = await lendingPoolContract.deposit(tokenAddress, amount, onBehalfOf, 0, { value: hbarValue });
     } else {
       depositTx = await lendingPoolContract.deposit(tokenAddress, amount, onBehalfOf, 0);
     }
 
     await depositTx.wait();
-    console.log(`✅ Deposited: ${depositTx.hash}\n`);
+    console.log(`✅ Deposited: ${depositTx.hash}`);
   } catch (error) {
-    console.error("\n=== ❌ DEPOSIT FAILED ===");
-    console.error(`Message: ${error.message}`);
+    console.error(`\n❌ DEPOSIT FAILED: ${error.message}`);
     throw error;
   }
 }
@@ -185,39 +159,26 @@ async function performDeposit(erc20Contract, lendingPoolContract, tokenAddress, 
  */
 async function performWithdraw(aTokenContract, lendingPoolContract, tokenAddress, amount, to, isWHBAR, whbarContractAddress, owner) {
   try {
-    console.log("\n=== 💵 WITHDRAW OPERATION ===");
+    console.log("\n💵 WITHDRAW OPERATION");
 
-    // Check aToken balance
     const aTokenBalance = await checkBalance(aTokenContract, to, "aToken before withdrawal");
     if (aTokenBalance.lt(amount)) {
       throw new Error(`❌ Insufficient aToken balance. Have: ${aTokenBalance.toString()}, need: ${amount.toString()}`);
     }
 
     if (isWHBAR && whbarContractAddress) {
-      // For WHBAR withdrawals, we need to approve to both lending pool and WHBAR contract
       const whbarContract = await setupContract("WHBARContract", whbarContractAddress, owner);
       const whbarTokenContract = await setupContract("ERC20Wrapper", tokenAddress, owner);
-
       await approveToken(whbarTokenContract, to, lendingPoolContract.address, amount, "WHBAR to Lending Pool");
       await approveToken(whbarTokenContract, to, whbarContract.address, amount, "WHBAR to WHBAR Contract");
     }
 
     console.log("\n🔄 Withdrawing...");
-    let withdrawTx;
-
-    if (isWHBAR) {
-      // Remove manual gas limits
-      withdrawTx = await lendingPoolContract.withdraw(tokenAddress, amount, whbarContractAddress);
-    } else {
-      // Remove manual gas limits
-      withdrawTx = await lendingPoolContract.withdraw(tokenAddress, amount, to);
-    }
-
+    const withdrawTx = await lendingPoolContract.withdraw(tokenAddress, amount, isWHBAR ? whbarContractAddress : to);
     await withdrawTx.wait();
-    console.log(`✅ Withdrawn: ${withdrawTx.hash}\n`);
+    console.log(`✅ Withdrawn: ${withdrawTx.hash}`);
   } catch (error) {
-    console.error("\n=== ❌ WITHDRAW FAILED ===");
-    console.error(`Message: ${error.message}`);
+    console.error(`\n❌ WITHDRAW FAILED: ${error.message}`);
     throw error;
   }
 }
@@ -227,33 +188,21 @@ async function performWithdraw(aTokenContract, lendingPoolContract, tokenAddress
  */
 async function performBorrow(lendingPoolContract, tokenAddress, amount, onBehalfOf, isWHBAR, whbarContractAddress, owner) {
   try {
-    console.log("\n=== 💳 BORROW OPERATION ===");
+    console.log("\n💳 BORROW OPERATION");
 
     if (isWHBAR && whbarContractAddress) {
-      // For WHBAR borrows, we need to approve to both lending pool and WHBAR contract
       const whbarContract = await setupContract("WHBARContract", whbarContractAddress, owner);
       const whbarTokenContract = await setupContract("ERC20Wrapper", tokenAddress, owner);
-
       await approveToken(whbarTokenContract, onBehalfOf, lendingPoolContract.address, amount, "WHBAR to Lending Pool");
       await approveToken(whbarTokenContract, onBehalfOf, whbarContract.address, amount, "WHBAR to WHBAR Contract");
     }
 
     console.log("\n🔄 Borrowing...");
-    let borrowTx;
-
-    if (isWHBAR) {
-      // Remove manual gas limits
-      borrowTx = await lendingPoolContract.borrow(tokenAddress, amount, 2, 0, onBehalfOf);
-    } else {
-      // Remove manual gas limits
-      borrowTx = await lendingPoolContract.borrow(tokenAddress, amount, 2, 0, onBehalfOf);
-    }
-
+    const borrowTx = await lendingPoolContract.borrow(tokenAddress, amount, 2, 0, onBehalfOf);
     await borrowTx.wait();
-    console.log(`✅ Borrowed: ${borrowTx.hash}\n`);
+    console.log(`✅ Borrowed: ${borrowTx.hash}`);
   } catch (error) {
-    console.error("\n=== ❌ BORROW FAILED ===");
-    console.error(`Message: ${error.message}`);
+    console.error(`\n❌ BORROW FAILED: ${error.message}`);
     throw error;
   }
 }
@@ -263,24 +212,17 @@ async function performBorrow(lendingPoolContract, tokenAddress, amount, onBehalf
  */
 async function performRepay(erc20Contract, lendingPoolContract, tokenAddress, amount, onBehalfOf, isWHBAR, whbarContract = null) {
   try {
-    console.log("\n=== 💸 REPAY OPERATION ===");
+    console.log("\n💸 REPAY OPERATION");
 
-    // Check if user has sufficient balance for repay
     const userBalance = await checkBalance(erc20Contract, onBehalfOf, "Current token balance");
     if (userBalance.lt(amount)) {
-      console.log("\n=== ❌ INSUFFICIENT BALANCE ===");
-      console.log(`💰 Required: ${amount.toString()}`);
-      console.log(`💰 Available: ${userBalance.toString()}`);
-      console.log(`💰 Shortfall: ${amount.sub(userBalance).toString()}`);
-      console.log("\n🚫 Cannot proceed with repay - insufficient token balance");
+      console.log(`\n❌ INSUFFICIENT BALANCE | Required: ${amount.toString()} | Available: ${userBalance.toString()} | Shortfall: ${amount.sub(userBalance).toString()}`);
+      console.log("🚫 Cannot proceed with repay - insufficient token balance");
       process.exit(1);
     }
 
     if (isWHBAR && whbarContract) {
-      // Check WHBAR balance and convert HBAR if needed
       await ensureWHBARBalance(whbarContract, erc20Contract, { address: onBehalfOf }, amount);
-
-      // For WHBAR, we need to approve to both lending pool and WHBAR contract
       await approveToken(erc20Contract, onBehalfOf, lendingPoolContract.address, amount, "WHBAR to Lending Pool");
       await approveToken(erc20Contract, onBehalfOf, whbarContract.address, amount, "WHBAR to WHBAR Contract");
     } else if (!isWHBAR) {
@@ -288,25 +230,19 @@ async function performRepay(erc20Contract, lendingPoolContract, tokenAddress, am
     }
 
     console.log("\n🔄 Repaying...");
-
     let repayTx;
     if (isWHBAR) {
-      // For WHBAR, convert amount to native HBAR value (multiply by 10^10)
-      const hbarValue = amount.mul(ethers.BigNumber.from("10000000000")); // 10^10
+      const hbarValue = amount.mul(ethers.BigNumber.from("10000000000"));
       console.log(`💰 HBAR value being sent: ${hbarValue.toString()}`);
-
-      repayTx = await lendingPoolContract.repay(tokenAddress, amount, 2, onBehalfOf, {
-        value: hbarValue,
-      });
+      repayTx = await lendingPoolContract.repay(tokenAddress, amount, 2, onBehalfOf, { value: hbarValue });
     } else {
       repayTx = await lendingPoolContract.repay(tokenAddress, amount, 2, onBehalfOf);
     }
 
     await repayTx.wait();
-    console.log(`✅ Repaid: ${repayTx.hash}\n`);
+    console.log(`✅ Repaid: ${repayTx.hash}`);
   } catch (error) {
-    console.error("\n=== ❌ REPAY FAILED ===");
-    console.error(`Message: ${error.message}`);
+    console.error(`\n❌ REPAY FAILED: ${error.message}`);
     throw error;
   }
 }

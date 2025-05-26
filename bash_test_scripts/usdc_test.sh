@@ -4,8 +4,6 @@
 
 set -e  # Exit on error
 
-export CHAIN_TYPE=hedera_testnet
-
 echo "Starting deposit..."
 node index.js deposit USDC 6
 echo "Deposit completed, starting borrow..."

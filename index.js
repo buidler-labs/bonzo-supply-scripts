@@ -27,7 +27,8 @@ const TOKEN_DECIMALS = {
 const action = process.argv[2]; // deposit, withdraw, borrow, repay
 const tokenSymbol = process.argv[3]; // SAUCE, USDC, etc.
 const amount = process.argv[4]; // amount in human readable format
-const chainType = process.env.CHAIN_TYPE || "hedera_testnet";
+
+const chainType = process.env.CHAIN_TYPE;
 
 // Validate arguments
 if (!action || !tokenSymbol || !amount) {
@@ -36,6 +37,14 @@ if (!action || !tokenSymbol || !amount) {
   console.log("💰 Tokens: SAUCE, USDC, HBARX, KARATE, WHBAR, GRELF, KBL, BONZO, DOVU, HST, PACK, STEAM");
   console.log("🔢 Amount: human readable amount (e.g., 100)");
   console.log('🌐 Set CHAIN_TYPE environment variable to "hedera_testnet" or "hedera_mainnet"');
+  process.exit(1);
+}
+
+// Validate chainType after attempting to read from .env
+if (chainType !== "hedera_testnet" && chainType !== "hedera_mainnet") {
+  console.error(`\n❌ Invalid CHAIN_TYPE: "${chainType}"`);
+  console.error('💡 CHAIN_TYPE must be either "hedera_testnet" or "hedera_mainnet".');
+  console.error("👉 Please check your .env file or environment variables.");
   process.exit(1);
 }
 
@@ -68,11 +77,7 @@ if (operatorPrivateKey && operatorAccountIdStr) {
 async function main() {
   try {
     console.log("\n=== 🔄 OPERATION DETAILS ===");
-    console.log(`👤 Owner address: ${owner.address}`);
-    console.log(`🌐 Chain: ${chainType}`);
-    console.log(`🔄 Action: ${action}`);
-    console.log(`💰 Token: ${tokenSymbol}`);
-    console.log(`🔢 Amount: ${amount}\n`);
+    console.log(`👤 Owner: ${owner.address} | 🌐 Chain: ${chainType} | 🔄 Action: ${action} | 💰 Token: ${tokenSymbol} | 🔢 Amount: ${amount}`);
 
     // Get token data
     const tokenData = outputReserveData[tokenSymbol];
@@ -82,12 +87,19 @@ async function main() {
 
     const chainData = tokenData[chainType];
     if (!chainData) {
-      throw new Error(`❌ Chain data for ${chainType} not found for token ${tokenSymbol}`);
+      const otherChain = chainType === "hedera_testnet" ? "hedera_mainnet" : "hedera_testnet";
+      if (tokenData[otherChain]) {
+        console.log(`❌ ${tokenSymbol} not available on ${chainType}, try CHAIN_TYPE=${otherChain}`);
+      } else {
+        console.log(`❌ ${tokenSymbol} not found on any chain`);
+      }
+      process.exit(1);
     }
 
     // Check if addresses are available
     if (!chainData.token.address) {
-      throw new Error(`❌ Token address not available for ${tokenSymbol} on ${chainType}`);
+      console.log(`❌ ${tokenSymbol} address not available on ${chainType}`);
+      process.exit(1);
     }
 
     // Get decimals and normalize amount
@@ -95,9 +107,7 @@ async function main() {
     const normalizedAmount = ethers.utils.parseUnits(amount, decimals);
     const isWHBAR = tokenSymbol === "WHBAR";
 
-    console.log("=== 📊 TOKEN DETAILS ===");
-    console.log(`📈 Normalized amount: ${normalizedAmount.toString()}`);
-    console.log(`🔑 Token address: ${chainData.token.address}\n`);
+    console.log(`📊 Normalized amount: ${normalizedAmount.toString()} | 🔑 Token address: ${chainData.token.address}`);
 
     // Setup contracts
     const lendingPoolContract = await setupContract("LendingPool", outputReserveData.LendingPool[chainType].address, owner);
@@ -112,15 +122,13 @@ async function main() {
       console.log(`🌊 WHBAR Contract: ${whbarContract.address}`);
     }
 
-    console.log("\n=== 📍 CONTRACT ADDRESSES ===");
-    console.log(`🏦 Lending Pool: ${lendingPoolContract.address}`);
-    console.log(`💎 aToken: ${aTokenContract.address}\n`);
+    console.log(`🏦 Lending Pool: ${lendingPoolContract.address} | 💎 aToken: ${aTokenContract.address}`);
 
     // Perform action
     switch (action.toLowerCase()) {
       case "deposit":
         // Check initial balances
-        console.log("=== 📊 INITIAL BALANCES ===");
+        console.log("\n=== 📊 INITIAL BALANCES ===");
         const initialTokenBalance = await checkBalance(erc20Contract, owner.address, "Token before deposit");
         const initialATokenBalance = await checkBalance(aTokenContract, owner.address, "aToken before deposit");
 
@@ -134,14 +142,12 @@ async function main() {
         // Calculate the difference
         const tokenDiff = initialTokenBalance.sub(finalTokenBalance);
         const aTokenDiff = finalATokenBalance.sub(initialATokenBalance);
-        console.log("\n=== 📈 TRANSACTION SUMMARY ===");
-        console.log(`💸 Token spent: ${tokenDiff.toString()}`);
-        console.log(`💰 aToken received: ${aTokenDiff.toString()}`);
+        console.log(`💸 Token spent: ${tokenDiff.toString()} | 💰 aToken received: ${aTokenDiff.toString()}`);
 
         if (aTokenDiff.gt(0)) {
-          console.log("\n✅ aTokens successfully minted - collateral should be available!");
+          console.log("✅ aTokens successfully minted - collateral should be available!");
         } else {
-          console.log("\n⚠️  No aTokens minted - there might be an issue with the deposit!");
+          console.log("⚠️  No aTokens minted - there might be an issue with the deposit!");
         }
         break;
 
@@ -149,11 +155,10 @@ async function main() {
         // Check if user has sufficient aToken balance for withdrawal
         const aTokenBalance = await checkBalance(aTokenContract, owner.address, "Current aToken balance");
         if (aTokenBalance.lt(normalizedAmount)) {
-          console.log("\n=== ❌ INSUFFICIENT ATOKEN BALANCE ===");
-          console.log(`💰 Required: ${normalizedAmount.toString()}`);
-          console.log(`💰 Available: ${aTokenBalance.toString()}`);
-          console.log(`💰 Shortfall: ${normalizedAmount.sub(aTokenBalance).toString()}`);
-          console.log("\n🚫 Cannot proceed with withdrawal - insufficient aToken balance");
+          console.log(
+            `\n❌ INSUFFICIENT ATOKEN BALANCE | Required: ${normalizedAmount.toString()} | Available: ${aTokenBalance.toString()} | Shortfall: ${normalizedAmount.sub(aTokenBalance).toString()}`
+          );
+          console.log("🚫 Cannot proceed with withdrawal - insufficient aToken balance");
           process.exit(1);
         }
 
@@ -169,9 +174,8 @@ async function main() {
         // Check if user has any aToken balance (collateral) before borrowing
         const collateralBalance = await checkBalance(aTokenContract, owner.address, "Current aToken balance (collateral)");
         if (collateralBalance.eq(0)) {
-          console.log("\n=== ❌ NO COLLATERAL AVAILABLE ===");
-          console.log("💰 aToken balance: 0");
-          console.log("\n🚫 Cannot proceed with borrow - no collateral deposited");
+          console.log("\n❌ NO COLLATERAL AVAILABLE | aToken balance: 0");
+          console.log("🚫 Cannot proceed with borrow - no collateral deposited");
           console.log("💡 Please deposit some assets first to use as collateral");
           process.exit(1);
         }

@@ -5,14 +5,14 @@
 set -e  # Exit on error
 
 echo "Starting deposit..."
-node index.js deposit WHBAR 6
+node index.js deposit KARATE 1
 echo "Deposit completed, starting borrow..."
 
-node index.js borrow WHBAR 2
+node index.js borrow KARATE 0.1
 echo "Borrow completed, starting repay..."
 
-node index.js repay WHBAR 2
+node index.js repay KARATE 0.1
 echo "Repay completed, starting withdraw..."
 
-node index.js withdraw WHBAR 6
+node index.js withdraw KARATE 1
 echo "All operations completed!"
