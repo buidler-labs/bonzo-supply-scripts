@@ -18,12 +18,15 @@
     "hedera",
     "hts"
   ],
+  "type": "commonjs",
   "author": "Bonzo Finance",
   "license": "MIT",
   "dependencies": {
+    "@buidlerlabs/citadel-sdk-js": "^0.1.0",
     "@hashgraph/sdk": "^2.40.0",
+    "dotenv": "^16.3.1",
     "ethers": "^5.7.2",
-    "dotenv": "^16.3.1"
+    "web-bluetooth": "^0.1.2"
   },
   "peerDependencies": {
     "hardhat": "^2.0.0"
