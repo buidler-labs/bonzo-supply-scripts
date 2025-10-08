@@ -2,7 +2,7 @@ const { ethers } = require("ethers");
 const { PrivateKey, ContractExecuteTransaction, ContractFunctionParameters, Client, AccountAllowanceApproveTransaction,
     TokenId,
     ContractId,
-    AccountId
+    AccountId, TransactionId
 } = require("@hashgraph/sdk");
 const {CitadelLink, TransportType} = require("@buidlerlabs/citadel-sdk-js");
 
@@ -17,7 +17,7 @@ const cwLink = new CitadelLink(TransportType.WebUsb);
 const operatorPrivateKey = process.env.PRIVATE_KEY_TESTNET;
 const operatorAccountIdStr = process.env.ACCOUNT_ID_TESTNET;
 const operatorPrKey = PrivateKey.fromStringECDSA(operatorPrivateKey);
-const operatorPuKey = operatorPrKey.publicKey.toEvmAddress();
+const operatorPuKey = operatorPrKey.publicKey;
 const operatorAccountId = AccountId.fromString(operatorAccountIdStr);
 
 const hClient = Client.forTestnet();
@@ -25,9 +25,7 @@ const cClient = Client.forTestnet();
 const SAUCE_TokenId = TokenId.fromString("0.0.1183558");
 const SAUCE_LendingPool_ContractId = ContractId.fromString("0.0.5991622");
 
-hClient.setMaxNodesPerTransaction(1);
 hClient.setOperator(operatorAccountId, operatorPrKey);
-cClient.setMaxNodesPerTransaction(1);
 cClient.setOperatorWith(operatorAccountId, operatorPuKey, cwLink.signWithWalletKey);
 
 async function main() {
@@ -45,7 +43,7 @@ async function main() {
             new ContractFunctionParameters()
                 .addAddress(SAUCE_TokenId.toSolidityAddress())
                 .addUint256(SAUCE_lendingAmount.toNumber())
-                .addAddress(operatorPuKey)
+                .addAddress(operatorPuKey.toEvmAddress())
                 .addUint16(0)
         ).execute(hClient);
 
@@ -60,16 +58,20 @@ async function main() {
                 .addUint256(SAUCE_borrowAmount.toNumber())
                 .addUint256(2)
                 .addUint16(0)
-                .addAddress(operatorPuKey)
-        ).freezeWith(hClient);
+                .addAddress(operatorPuKey.toEvmAddress())
+        )
+        .setTransactionId(TransactionId.generate(operatorAccountId))
+        .setNodeAccountIds([AccountId.fromString("0.0.3")] )
+        .freeze();
 
     const hederaFrozenBorrowTx = await frozenBorrowTx.signWithOperator(hClient);
     const hederaBorrowSignatures = await hederaFrozenBorrowTx.getSignaturesAsync();
     const hederaSignature = Buffer.from(hederaBorrowSignatures.getFlatSignatureList()[0].values().next().value).toString('hex');
 
     console.log("Hedera native client signature:", hederaSignature);
+    hederaFrozenBorrowTx.removeSignature(operatorPrKey.publicKey);
 
-    const citadelFrozenBorrowTx = await frozenBorrowTx.signWithOperator(hClient);
+    const citadelFrozenBorrowTx = await frozenBorrowTx.signWithOperator(cClient);
     const citadelBorrowSignatures = await citadelFrozenBorrowTx.getSignaturesAsync();
     const citadelSignature = Buffer.from(citadelBorrowSignatures.getFlatSignatureList()[0].values().next().value).toString('hex');
 
@@ -100,7 +102,7 @@ async function main() {
                 .addAddress(SAUCE_TokenId.toSolidityAddress())
                 .addUint256(SAUCE_borrowAmount.toNumber())
                 .addUint256(2)
-                .addAddress(operatorPuKey)
+                .addAddress(operatorPuKey.toEvmAddress())
         ).execute(hClient);
 
     // Then withdraw to be back to square one
@@ -111,7 +113,7 @@ async function main() {
             new ContractFunctionParameters()
                 .addAddress(SAUCE_TokenId.toSolidityAddress())
                 .addUint256(SAUCE_lendingAmount.toNumber())
-                .addAddress(operatorPuKey)
+                .addAddress(operatorPuKey.toEvmAddress())
         ).execute(hClient);
 
     console.log(`Done`);
